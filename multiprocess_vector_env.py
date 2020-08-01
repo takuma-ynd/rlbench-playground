@@ -67,7 +67,6 @@ See https://github.com/numpy/numpy/issues/12793 for details.
             p.start()
         self.last_obs = [None] * self.num_envs
         # self.remotes[0].send(("observation_mode", None))
-        import ipdb; ipdb.set_trace()
         self.remotes[0].send(("get_spaces", None))
         self.action_space, self.observation_space = self.remotes[0].recv()
         self.closed = False
