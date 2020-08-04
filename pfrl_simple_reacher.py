@@ -9,17 +9,44 @@ import numpy as np
 import os
 from multiprocess_vector_env import MultiprocessVectorEnv
 
-from gym import ObservationWrapper
 from gym.wrappers import ResizeObservation, RescaleAction
 from gym.wrappers.flatten_observation import FlattenObservation
 
-class WristObsWrapper(ObservationWrapper):
+class WristObsWrapper(gym.ObservationWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.observation_space = self.observation_space['wrist_rgb']
 
     def observation(self, observation):
         return observation['wrist_rgb']
+
+class GraspActionWrapper(gym.ActionWrapper):
+    r"""Rescales the continuous action space of the environment to a range [a,b].
+    Example::
+        >>> RescaleAction(env, a, b).action_space == Box(a,b)
+        True
+    """
+    def __init__(self, env, action_size):
+        assert isinstance(env.action_space, spaces.Box), (
+            "expected Box action space, got {}".format(type(env.action_space)))
+        super().__init__(env)
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(action_size,))
+
+    def action(self, act):
+        # Append grasp action (closed)
+        return np.concatenate((act, [0.0]), axis=0)
+
+    def reverse_action(self, act):
+        return act[:-1]
+
+class NormalizeAction(gym.ActionWrapper):
+    def __init__(self, env, speed=0.2):
+        super().__init__(env)
+        self.speed = speed
+
+    def action(self, act):
+        return self.speed * (act / np.linalg.norm(act))
+
 
 
 """A training script of PPO on OpenAI Gym Mujoco environments.
@@ -143,7 +170,8 @@ def main():
     args.outdir = experiments.prepare_output_dir(args, args.outdir)
 
     def make_env(process_idx, test):
-        env = RescaleAction(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), -0.5, 0.5)
+        env = NormalizeAction(GraspActionWrapper(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), args.action_size))
+        # env = GraspActionWrapper(RescaleAction(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), -0.5, 0.5))
         # Use different random seeds for train and test envs
         process_seed = int(process_seeds[process_idx])
         env_seed = 2 ** 32 - 1 - process_seed if test else process_seed
@@ -165,8 +193,7 @@ def main():
         )
 
     # Only for getting timesteps, and obs-action spaces
-    # sample_env = MyObservationWrapper(gym.make(args.env))
-    # sample_env = ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))
+    # sample_env = RescaleAction(GraspActionWrapper(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), args.action_size), -0.5, 0.5)
     # timestep_limit = sample_env.spec.max_episode_steps
     timestep_limit = 1000
     # obs_space = sample_env.observation_space
@@ -175,6 +202,8 @@ def main():
     action_space = spaces.Box(low=-1.0, high=1.0, shape=(args.action_size,))
     print("Observation space:", obs_space)
     print("Action space:", action_space)
+    # assert obs_space == spaces.Box(low=0, high=1, shape=(64 * 64 * 3,))
+    # assert action_space == spaces.Box(low=-1.0, high=1.0, shape=(args.action_size,))
     # sample_env.close()
 
     assert isinstance(action_space, gym.spaces.Box)
