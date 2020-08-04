@@ -10,7 +10,7 @@ import os
 from multiprocess_vector_env import MultiprocessVectorEnv
 
 from gym import ObservationWrapper
-from gym.wrappers import ResizeObservation
+from gym.wrappers import ResizeObservation, RescaleAction
 from gym.wrappers.flatten_observation import FlattenObservation
 
 class WristObsWrapper(ObservationWrapper):
@@ -52,7 +52,7 @@ def main():
     parser.add_argument(
         "--env",
         type=str,
-        default="reach_target-vision-v0",
+        default="reach_target-ee-vision-v0",
         help="OpenAI Gym MuJoCo env to perform algorithm on.",
     )
     parser.add_argument(
@@ -120,6 +120,12 @@ def main():
         default=10,
         help="Number of epochs to update model for per PPO iteration.",
     )
+    parser.add_argument(
+        "--action-size",
+        type=int,
+        default=3,
+        help="Action size (needs to match env.action_space)",
+    )
     parser.add_argument("--batch-size", type=int, default=64, help="Minibatch size")
     args = parser.parse_args()
 
@@ -137,7 +143,7 @@ def main():
     args.outdir = experiments.prepare_output_dir(args, args.outdir)
 
     def make_env(process_idx, test):
-        env = FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64)))
+        env = RescaleAction(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), -0.5, 0.5)
         # Use different random seeds for train and test envs
         process_seed = int(process_seeds[process_idx])
         env_seed = 2 ** 32 - 1 - process_seed if test else process_seed
@@ -166,7 +172,7 @@ def main():
     # obs_space = sample_env.observation_space
     obs_space = spaces.Box(low=0, high=1, shape=(64 * 64 * 3,))
     # action_space = sample_env.action_space
-    action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,))
+    action_space = spaces.Box(low=-1.0, high=1.0, shape=(args.action_size,))
     print("Observation space:", obs_space)
     print("Action space:", action_space)
     # sample_env.close()
