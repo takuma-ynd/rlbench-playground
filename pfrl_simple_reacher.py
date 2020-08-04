@@ -40,7 +40,7 @@ class GraspActionWrapper(gym.ActionWrapper):
         return act[:-1]
 
 class NormalizeAction(gym.ActionWrapper):
-    def __init__(self, env, speed=0.2):
+    def __init__(self, env, speed=0.1):
         super().__init__(env)
         self.speed = speed
 
@@ -195,7 +195,7 @@ def main():
     # Only for getting timesteps, and obs-action spaces
     # sample_env = RescaleAction(GraspActionWrapper(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), args.action_size), -0.5, 0.5)
     # timestep_limit = sample_env.spec.max_episode_steps
-    timestep_limit = 1000
+    timestep_limit = 200
     # obs_space = sample_env.observation_space
     obs_space = spaces.Box(low=0, high=1, shape=(64 * 64 * 3,))
     # action_space = sample_env.action_space
