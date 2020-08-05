@@ -15,10 +15,10 @@ from gym.wrappers.flatten_observation import FlattenObservation
 class WristObsWrapper(gym.ObservationWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.observation_space = self.observation_space['wrist_rgb']
+        self.observation_space = self.observation_space['front_rgb']
 
     def observation(self, observation):
-        return observation['wrist_rgb']
+        return observation['front_rgb']
 
 class GraspActionWrapper(gym.ActionWrapper):
     r"""Rescales the continuous action space of the environment to a range [a,b].
