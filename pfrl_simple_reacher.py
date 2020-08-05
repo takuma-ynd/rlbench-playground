@@ -40,7 +40,7 @@ class GraspActionWrapper(gym.ActionWrapper):
         return act[:-1]
 
 class NormalizeAction(gym.ActionWrapper):
-    def __init__(self, env, speed=0.1):
+    def __init__(self, env, speed=0.2):
         super().__init__(env)
         self.speed = speed
 
