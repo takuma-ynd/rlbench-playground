@@ -170,7 +170,8 @@ def main():
     args.outdir = experiments.prepare_output_dir(args, args.outdir)
 
     def make_env(process_idx, test):
-        env = NormalizeAction(GraspActionWrapper(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), args.action_size))
+        render_mode = 'human' if args.render else None
+        env = NormalizeAction(GraspActionWrapper(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env, render_mode=render_mode)), (64, 64))), args.action_size))
         # env = GraspActionWrapper(RescaleAction(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), -0.5, 0.5))
         # Use different random seeds for train and test envs
         process_seed = int(process_seeds[process_idx])
