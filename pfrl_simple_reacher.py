@@ -171,7 +171,7 @@ def main():
 
     def make_env(process_idx, test):
         render_mode = 'human' if args.render else None
-        env = NormalizeAction(GraspActionWrapper(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env, render_mode=render_mode)), (64, 64))), args.action_size))
+        env = NormalizeAction(GraspActionWrapper(ResizeObservation(WristObsWrapper(gym.make(args.env, render_mode=render_mode)), (64, 64))), args.action_size)
         # env = GraspActionWrapper(RescaleAction(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), -0.5, 0.5))
         # Use different random seeds for train and test envs
         process_seed = int(process_seeds[process_idx])
@@ -216,11 +216,21 @@ def main():
 
     obs_size = obs_space.low.size
     action_size = action_space.low.size
-    policy = torch.nn.Sequential(
-        nn.Linear(obs_size, 64),
-        nn.Tanh(),
-        nn.Linear(64, 64),
-        nn.Tanh(),
+    policy = nn.Sequential(
+        nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Flatten(),
+        nn.Linear(8 * 8 * 128, 128),
+        nn.ReLU(True),
+        nn.Linear(128, 64),
+        nn.ReLU(True),
         nn.Linear(64, action_size),
         pfrl.policies.GaussianHeadWithStateIndependentCovariance(
             action_size=action_size,
@@ -230,26 +240,45 @@ def main():
         ),
     )
 
-    vf = torch.nn.Sequential(
-        nn.Linear(obs_size, 64),
-        nn.Tanh(),
-        nn.Linear(64, 64),
-        nn.Tanh(),
+    vf = nn.Sequential(
+        nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.MaxPool2d(kernel_size=2),
+        nn.Flatten(),
+        nn.Linear(8 * 8 * 128, 128),
+        nn.ReLU(True),
+        nn.Linear(128, 64),
+        nn.ReLU(True),
         nn.Linear(64, 1),
     )
 
-    # While the original paper initialized weights by normal distribution,
-    # we use orthogonal initialization as the latest openai/baselines does.
-    def ortho_init(layer, gain):
-        nn.init.orthogonal_(layer.weight, gain=gain)
-        nn.init.zeros_(layer.bias)
+    def _initialize_weights(model):
+        for m in model.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
 
-    ortho_init(policy[0], gain=1)
-    ortho_init(policy[2], gain=1)
-    ortho_init(policy[4], gain=1e-2)
-    ortho_init(vf[0], gain=1)
-    ortho_init(vf[2], gain=1)
-    ortho_init(vf[4], gain=1)
+    _initialize_weights(policy)
+    _initialize_weights(vf)
+    print('weight initialization successful ;)')
+
+    # import torch
+    # dummy = torch.tensor(np.zeros((11, 3, 64, 64), dtype=np.float32))
+    # import ipdb; ipdb.set_trace()
+    # hoge = policy(dummy)
 
     # Combine a policy and a value function into a single model
     model = pfrl.nn.Branched(policy, vf)
