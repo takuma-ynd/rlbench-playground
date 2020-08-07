@@ -12,13 +12,30 @@ from multiprocess_vector_env import MultiprocessVectorEnv
 from gym.wrappers import ResizeObservation, RescaleAction
 from gym.wrappers.flatten_observation import FlattenObservation
 
+class TransposeObs(gym.ObservationWrapper):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # DIRTY!!
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(3, 64, 64))
+
+    def observation(self, observation):
+        obs = np.transpose(observation, (2, 0, 1))  # hwc --> chw
+        return obs
+
+
 class WristObsWrapper(gym.ObservationWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.observation_space = self.observation_space['front_rgb']
+        # prev_space = self.observation_space['front_rgb']
+        # DIRTY!!
+        # self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(3, 64, 64))
 
     def observation(self, observation):
-        return observation['front_rgb']
+        obs = observation['front_rgb']
+        # obs = np.transpose(obs, (2, 0, 1))  # hwc --> chw
+        # print('obs.shape (WristObsWrapper)', obs.shape)
+        return obs
 
 class GraspActionWrapper(gym.ActionWrapper):
     r"""Rescales the continuous action space of the environment to a range [a,b].
@@ -171,7 +188,7 @@ def main():
 
     def make_env(process_idx, test):
         render_mode = 'human' if args.render else None
-        env = NormalizeAction(GraspActionWrapper(ResizeObservation(WristObsWrapper(gym.make(args.env, render_mode=render_mode)), (64, 64))), args.action_size)
+        env = NormalizeAction(GraspActionWrapper(TransposeObs(ResizeObservation(WristObsWrapper(gym.make(args.env, render_mode=render_mode)), (64, 64))), args.action_size))
         # env = GraspActionWrapper(RescaleAction(FlattenObservation(ResizeObservation(WristObsWrapper(gym.make(args.env)), (64, 64))), -0.5, 0.5))
         # Use different random seeds for train and test envs
         process_seed = int(process_seeds[process_idx])
@@ -198,7 +215,8 @@ def main():
     # timestep_limit = sample_env.spec.max_episode_steps
     timestep_limit = 200
     # obs_space = sample_env.observation_space
-    obs_space = spaces.Box(low=0, high=1, shape=(64 * 64 * 3,))
+    # obs_space = spaces.Box(low=0, high=1, shape=(64 * 64 * 3,))
+    obs_space = spaces.Box(low=0, high=1, shape=(3, 64, 64))
     # action_space = sample_env.action_space
     action_space = spaces.Box(low=-1.0, high=1.0, shape=(args.action_size,))
     print("Observation space:", obs_space)
@@ -211,7 +229,7 @@ def main():
 
     # Normalize observations based on their empirical mean and variance
     obs_normalizer = pfrl.nn.EmpiricalNormalization(
-        obs_space.low.size, clip_threshold=5
+        obs_space.shape, clip_threshold=5
     )
 
     obs_size = obs_space.low.size
