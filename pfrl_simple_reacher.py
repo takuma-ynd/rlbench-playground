@@ -96,7 +96,7 @@ def main():
     parser.add_argument(
         "--env",
         type=str,
-        default="reach_target-ee-vision-v0",
+        default="reach_target-ee-vision-v1",
         help="OpenAI Gym MuJoCo env to perform algorithm on.",
     )
     parser.add_argument(
