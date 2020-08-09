@@ -200,7 +200,7 @@ def main():
             env = pfrl.wrappers.Monitor(env, args.outdir)
         if args.render:
             env = pfrl.wrappers.Render(env)
-        return env
+        return env, process_idx
 
     def make_batch_env(test):
         return MultiprocessVectorEnv(
