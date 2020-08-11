@@ -70,6 +70,7 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         self.action_space, self.observation_space = self.remotes[0].recv()
         self.closed = False
         self._mask = np.zeros(self.num_envs)
+        self._timeout_steps = 60
 
     def __del__(self):
         if not self.closed:
@@ -102,7 +103,7 @@ See https://github.com/numpy/numpy/issues/12793 for details.
             while not has_response:
                 has_response = self.remotes[i].poll()
                 print('step: (remote {}) remote.poll() returned {}, counter {}'.format(i, has_response, counter))
-                if counter == 60:
+                if counter != 0 and counter % self._timeout_steps == 0:
                     print('blacklisting remote {}'.format(i))
                     self._mask[i] = True
                     print('cleaning up...')
@@ -142,12 +143,50 @@ See https://github.com/numpy/numpy/issues/12793 for details.
             if not m:
                 remote.send(("reset", None))
 
-        print('waiting for the observation responses from remote.recv()...')
-        obs = [
-            remote.recv() if not m else o
-            for m, remote, o in zip(mask, self.remotes, self.last_obs)
-        ]
-        print('waiting for the observation responses from remote.recv()...DONE')
+        obs = []
+        timeout_steps = 10
+        for i in range(len(self.remotes)):
+            counter = 0
+            has_response = False
+            while not has_response:
+                has_response = self.remotes[i].poll()
+                print('reset: (remote {}) remote.poll() returned {}, counter {}'.format(i, has_response, counter))
+                if counter != 0 and counter % self._timeout_steps == 0:
+                    print('[reset] blacklisting remote {}'.format(i))
+                    self._mask[i] = True
+                    print('[reset] cleaning up...')
+                    print('[reset] sending "close" to remote {}'.format(i))
+                    self.remotes[i].send(("close", None))
+                    print('[reset] self.ps[i].terminate()')
+                    self.ps[i].terminate()
+                    print('[reset] re-initializing Process...')
+                    # update Pipe()
+                    list_remotes = list(self.remotes)
+                    list_work_remotes = list(self.work_remotes)
+                    list_remotes[i], list_work_remotes[i] = Pipe()
+                    self.remotes = tuple(list_remotes)
+                    self.work_remotes = tuple(list_work_remotes)
+                    self.ps[i] = Process(target=worker, args=(self.work_remotes[i], self.env_fns[i]))
+                    self.ps[i].start()
+                    time.sleep(15)
+                    self.remotes[i].send(("reset", None))  # a bit HACKY...
+                counter += 1
+                if not has_response:
+                    time.sleep(0.5)
+            if mask[i]:
+                print('[reset] !! using self.last_obs for remote {} due to the original mask'.format(i))
+                obs.append(self.last_obs[i])
+                continue
+            print('[reset] waiting for the responses from remote.recv()...')
+            obs.append(self.remotes[i].recv())
+            print('[reset] waiting for the responses from remote.recv()...DONE')
+
+        # print('waiting for the observation responses from remote.recv()...')
+        # obs = [
+        #     remote.recv() if not m else o
+        #     for m, remote, o in zip(mask, self.remotes, self.last_obs)
+        # ]
+        # print('waiting for the observation responses from remote.recv()...DONE')
         self.last_obs = obs
         return obs
 
