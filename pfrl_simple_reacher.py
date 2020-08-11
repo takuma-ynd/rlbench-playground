@@ -203,14 +203,10 @@ def main():
         return env, process_idx
 
     def make_batch_env(test):
-        if test:
-            num_envs = 1
-        else:
-            num_envs = args.num_envs
         return MultiprocessVectorEnv(
             [
                 functools.partial(make_env, idx, test)
-                for idx, env in enumerate(range(num_envs))
+                for idx, env in enumerate(range(args.num_envs))
             ]
         )
 
