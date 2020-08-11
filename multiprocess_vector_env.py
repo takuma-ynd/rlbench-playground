@@ -7,6 +7,7 @@ import numpy as np
 from torch.distributions.utils import lazy_property
 
 import pfrl
+import time
 
 
 def worker(remote, env_fn):
@@ -17,33 +18,20 @@ def worker(remote, env_fn):
         while True:
             cmd, data = remote.recv()
             if cmd == "step":
-                print('(remote) {} received cmd == "step"'.format(process_idx))
                 ob, reward, done, info = env.step(data)
-                print('(remote) env.step(data) ran successfully...')
                 remote.send((ob, reward, done, info))
-                print('(remote) {} remote.send((ob, reward, done, info))'.format(process_idx))
             elif cmd == "reset":
-                print('(remote) {} received cmd == "reset"'.format(process_idx))
                 ob = env.reset()
-                print('(remote) {} env.reset() ran successfully...'.format(process_idx))
                 remote.send(ob)
-                print('(remote) {} remote.send(ob)'.format(process_idx))
             elif cmd == "close":
-                print('(remote) {} received cmd == "close"'.format(process_idx))
                 remote.close()
                 break
             elif cmd == "get_spaces":
-                print('(remote) {} received cmd == "get_spaces"'.format(process_idx))
                 remote.send((env.action_space, env.observation_space))
-                print('(remote) {} remote.send((env.action_space, env.observation_space))'.format(process_idx))
             elif cmd == "spec":
-                print('(remote) {} received cmd == "spec"'.format(process_idx))
                 remote.send(env.spec)
-                print('(remote) {} remote.send((env.spec))'.format(process_idx))
             elif cmd == "seed":
-                print('(remote) {} received cmd == "seed"'.format(process_idx))
                 remote.send(env.seed(data))
-                print('(remote) {} remote.send((env.seed(data)))'.format(process_idx))
             else:
                 raise NotImplementedError
     finally:
@@ -70,20 +58,18 @@ See https://github.com/numpy/numpy/issues/12793 for details.
 
         nenvs = len(env_fns)
         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(nenvs)])
+        self.env_fns = env_fns
         self.ps = [
             Process(target=worker, args=(work_remote, env_fn))
             for (work_remote, env_fn) in zip(self.work_remotes, env_fns)
         ]
-        print('(host) running p.start()...')
         for p in self.ps:
             p.start()
-        print('(host) running p.start()...DONE')
         self.last_obs = [None] * self.num_envs
-        print('(host) remotes[0].send(("get_spaces", None))')
         self.remotes[0].send(("get_spaces", None))
-        print('waiting for the responses from remotes[0].recv()...')
         self.action_space, self.observation_space = self.remotes[0].recv()
         self.closed = False
+        self._mask = np.zeros(self.num_envs)
 
     def __del__(self):
         if not self.closed:
@@ -100,23 +86,60 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         return spec
 
     def step(self, actions):
+        print('MASK: {}'.format(self._mask))
         self._assert_not_closed()
         for i, (remote, action) in enumerate(zip(self.remotes, actions)):
+            # if self._mask[i]:
+            #     print('skipping remote {} due to the mask'.format(i))
+            #     continue
             remote.send(("step", action))
             print('(host) {} remote.send(("step", action))'.format(i))
-        print('waiting for the responses from remote.recv()...')
-        results = [remote.recv() for remote in self.remotes]
-        print('waiting for the responses from remote.recv()...DONE')
+        results = []
+        for i in range(len(self.remotes)):
+            # if self._mask[i]: continue
+            counter = 0
+            has_response = False
+            while not has_response:
+                has_response = self.remotes[i].poll()
+                print('step: (remote {}) remote.poll() returned {}, counter {}'.format(i, has_response, counter))
+                if counter == 60:
+                    print('blacklisting remote {}'.format(i))
+                    self._mask[i] = True
+                    print('cleaning up...')
+                    print('sending "close" to remote {}'.format(i))
+                    self.remotes[i].send(("close", None))
+                    print('self.ps[i].terminate()')
+                    self.ps[i].terminate()
+                    print('re-initializing Process...')
+                    # update Pipe()
+                    list_remotes = list(self.remotes)
+                    list_work_remotes = list(self.work_remotes)
+                    list_remotes[i], list_work_remotes[i] = Pipe()
+                    self.remotes = tuple(list_remotes)
+                    self.work_remotes = tuple(list_work_remotes)
+                    self.ps[i] = Process(target=worker, args=(self.work_remotes[i], self.env_fns[i]))
+                    self.ps[i].start()
+                    time.sleep(15)
+                    self.remotes[i].send(("step", actions[i]))  # a bit HACKY...
+                counter += 1
+                if not has_response:
+                    time.sleep(0.5)
+            print('waiting for the responses from remote.recv()...')
+            results.append(self.remotes[i].recv())
+            print('waiting for the responses from remote.recv()...DONE')
+
+        # results = [remote.recv() for remote in self.remotes]
         self.last_obs, rews, dones, infos = zip(*results)
         return self.last_obs, rews, dones, infos
 
     def reset(self, mask=None):
         self._assert_not_closed()
+        print('MASK: {}'.format(self._mask))
+        # mask = self._mask
         if mask is None:
             mask = np.zeros(self.num_envs)
         for i, (m, remote) in enumerate(zip(mask, self.remotes)):
             if not m:
-                print('(host) {} remote.send(("reset", None))'.format(i))
                 remote.send(("reset", None))
 
         print('waiting for the observation responses from remote.recv()...')
@@ -131,13 +154,10 @@ See https://github.com/numpy/numpy/issues/12793 for details.
     def close(self):
         self._assert_not_closed()
         self.closed = True
-        print('(host) remote.send(("close", None))')
         for remote in self.remotes:
             remote.send(("close", None))
-        print('(host) running p.join()...')
         for p in self.ps:
             p.join()
-        print('(host) running p.join()...DONE')
 
     def seed(self, seeds=None):
         self._assert_not_closed()
@@ -159,11 +179,8 @@ See https://github.com/numpy/numpy/issues/12793 for details.
             seeds = [None] * self.num_envs
 
         for remote, seed in zip(self.remotes, seeds):
-            print('(host) remote.send(("seed", None))')
             remote.send(("seed", seed))
-        print('waiting for the seed responses from remote.recv()...')
         results = [remote.recv() for remote in self.remotes]
-        print('waiting for the seed responses from remote.recv()...DONE')
         return results
 
     @property
