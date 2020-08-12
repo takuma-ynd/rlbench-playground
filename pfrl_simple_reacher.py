@@ -207,7 +207,7 @@ def main():
             [
                 functools.partial(make_env, idx, test)
                 for idx, env in enumerate(range(args.num_envs))
-            ]
+            ], make_env=make_env
         )
 
     # Only for getting timesteps, and obs-action spaces

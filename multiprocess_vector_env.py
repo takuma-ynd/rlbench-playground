@@ -2,12 +2,14 @@ from multiprocessing import Pipe
 from multiprocessing import Process
 import signal
 import warnings
+import functools
 
 import numpy as np
 from torch.distributions.utils import lazy_property
 
 import pfrl
 import time
+import random
 
 
 def worker(remote, env_fn):
@@ -32,6 +34,8 @@ def worker(remote, env_fn):
                 remote.send(env.spec)
             elif cmd == "seed":
                 remote.send(env.seed(data))
+            elif cmd == "ping":
+                remote.send('success!')
             else:
                 raise NotImplementedError
     finally:
@@ -46,7 +50,7 @@ class MultiprocessVectorEnv(pfrl.env.VectorEnv):
             returns gym.Env that is run in its own subprocess.
     """
 
-    def __init__(self, env_fns):
+    def __init__(self, env_fns, make_env):
         if np.__version__ == "1.16.0":
             warnings.warn(
                 """
@@ -58,6 +62,7 @@ See https://github.com/numpy/numpy/issues/12793 for details.
 
         nenvs = len(env_fns)
         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(nenvs)])
+        self.make_env = make_env
         self.env_fns = env_fns
         self.ps = [
             Process(target=worker, args=(work_remote, env_fn))
@@ -88,14 +93,15 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         print('waiting for the responses from remotes[0].recv()...DONE')
         return spec
 
-    def _clean_remote(self, i, key, sleep=15):
+    def _clean_remote(self, i, key, sleep=10):
         print('[{}] blacklisting remote {}'.format(key, i))
         self._mask[i] = True
         print('[{}] cleaning up...'.format(key))
         print('[{}] sending "close" to remote {}'.format(key, i))
         self.remotes[i].send(("close", None))
-        # print('[{}] self.ps[i].terminate()'.format(key))
-        # self.ps[i].terminate()
+        print('[{}] self.ps[i].terminate()'.format(key))
+        self.ps[i].terminate()
+        time.sleep(5)
         print('[{}] re-initializing Process...'.format(key))
         # update Pipe()
         list_remotes = list(self.remotes)
@@ -103,9 +109,13 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         list_remotes[i], list_work_remotes[i] = Pipe()
         self.remotes = tuple(list_remotes)
         self.work_remotes = tuple(list_work_remotes)
-        self.ps[i] = Process(target=worker, args=(self.work_remotes[i], self.env_fns[i]))
+        # self.ps[i] = Process(target=worker, args=(self.work_remotes[i], self.env_fns[i]))
+        self.ps[i] = Process(target=worker, args=(self.work_remotes[i], functools.partial(self.make_env, i, False)))
         self.ps[i].start()
+        print('[{}] waiting {} seconds...'.format(key, sleep))
         time.sleep(sleep)
+        print('[{}] processes: {}'.format(key, self.ps))
+        print('[{}] re-initializing Process...'.format(key))
 
     def step(self, actions):
         print('MASK: {}'.format(self._mask))
@@ -142,6 +152,8 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         for i in non_responsive_remotes:
             print('non_responsive_remotes', non_responsive_remotes)
             self._clean_remote(i, 'step')
+            print('step: re-initialized process:', self.ps[i])
+            print('step: remotes[{idx}].send(("step, actions[{idx}]"))'.format(idx=i))
             self.remotes[i].send(("step", actions[i]))
             print('waiting for the responses from remote[{}].recv()...'.format(i))
             results[i] = self.remotes[i].recv()
@@ -154,6 +166,15 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         self.last_obs, rews, dones, infos = zip(*results)
         return self.last_obs, rews, dones, infos
 
+    def ping_remotes(self):
+        for i, remote in enumerate(self.remotes):
+            remote.send(("ping", None))
+        print('waiting for ping results...')
+        print('processes', self.ps)
+        ping_results = [remote.recv() for remote in self.remotes]
+        print('ping results:', ping_results)
+
+
     def reset(self, mask=None):
         self._assert_not_closed()
         print('MASK: {}'.format(self._mask))
@@ -161,6 +182,7 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         # mask = self._mask
         if mask is None:
             mask = np.zeros(self.num_envs)
+
         for i, (m, remote) in enumerate(zip(mask, self.remotes)):
             if not m:
                 remote.send(("reset", None))
@@ -178,6 +200,7 @@ See https://github.com/numpy/numpy/issues/12793 for details.
             # while loop to poll for every remote
             while not has_response:
                 if mask[i]:
+                    print('reset: skip remote {} due to the original mask'.format(i))
                     has_response = True
                 else:
                     has_response = self.remotes[i].poll()
@@ -208,6 +231,7 @@ See https://github.com/numpy/numpy/issues/12793 for details.
                 print('mask:', mask)
                 obs[i] = self.last_obs[i]
             else:
+                print('reset: re-initialized process:', self.ps[i])
                 self.remotes[i].send(("reset", None))
                 print('waiting for the responses from remote[{}].recv()...'.format(i))
                 obs[i] = self.remotes[i].recv()
