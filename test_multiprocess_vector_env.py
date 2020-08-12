@@ -16,7 +16,7 @@ class TestRLBenchEnv(gym.Env):
     def __init__(self):
         # env.launch()
         print('env.launch().....')
-        time.sleep(4)
+        time.sleep(3)
 
         # _, obs = self.task.reset()
 
@@ -31,16 +31,27 @@ class TestRLBenchEnv(gym.Env):
                         "wrist_rgb": spaces.Box(low=0, high=1, shape=rgb_shape)
         }
         self.observation_space = spaces.Dict(space_dict)
+        self.bug_in_prev_step = False
+        self.initial_reset = True
 
     def reset(self) -> Dict[str, np.ndarray]:
-        time.sleep(2 * random.random())
+        if random.random() < 0.4 and not self.bug_in_prev_step and not self.initial_reset:
+            print('sleeping for 1000 secs ;)')
+            time.sleep(1000)
+            self.bug_in_prev_step = True
+        else:
+            time.sleep(2 * random.random())
+            self.bug_in_prev_step = False
+        self.initial_reset = False
         return 'reset yeah'
 
     def step(self, action) -> Tuple[Dict[str, np.ndarray], float, bool, dict]:
-        if random.random() < 0.2:
-            time.sleep(500)
+        if random.random() < 0.0 and not self.bug_in_prev_step:
+            time.sleep(1000)
+            self.bug_in_prev_step = True
         else:
-            time.sleep(2)
+            time.sleep(2 * random.random())
+            self.bug_in_prev_step = False
         return None, None, None, None
 
     def close(self) -> None:
@@ -82,7 +93,7 @@ def main():
     multiprocess_env = make_batch_env(False)
 
     train_steps = 100
-    episode_len = 50
+    episode_len = 5
     for i in range(train_steps):
         print('============= step {} ==============='.format(i))
         if i % episode_len == 0:
