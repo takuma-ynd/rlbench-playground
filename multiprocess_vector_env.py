@@ -101,9 +101,6 @@ See https://github.com/numpy/numpy/issues/12793 for details.
         self.remotes[i].send(("close", None))
         print('[{}] self.ps[i].terminate()'.format(key))
         self.ps[i].terminate()
-        print('JOINING...')
-        self.ps[i].join()  # wait until the process terminates
-        time.sleep(5)
         print('[{}] re-initializing Process...'.format(key))
         # update Pipe()
         list_remotes = list(self.remotes)
@@ -190,7 +187,7 @@ See https://github.com/numpy/numpy/issues/12793 for details.
                 remote.send(("reset", None))
 
         if self._initial_reset:
-            time.sleep(40)
+            time.sleep(10)
             self._initial_reset = False
 
         obs = [None for _ in range(len(self.remotes))]

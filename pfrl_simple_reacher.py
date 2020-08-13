@@ -198,8 +198,8 @@ def main():
         env = pfrl.wrappers.CastObservationToFloat32(env)
         if args.monitor:
             env = pfrl.wrappers.Monitor(env, args.outdir)
-        if args.render:
-            env = pfrl.wrappers.Render(env)
+        # if args.render:
+        #     env = pfrl.wrappers.Render(env)
         return env, process_idx
 
     def make_batch_env(test):
@@ -236,18 +236,22 @@ def main():
     action_size = action_space.low.size
     policy = nn.Sequential(
         nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1),
+        nn.ReLU(True),
         nn.MaxPool2d(kernel_size=2),
         nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
-        nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
-        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.ReLU(True),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.ReLU(True),
         nn.MaxPool2d(kernel_size=2),
-        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.ReLU(True),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.ReLU(True),
         nn.MaxPool2d(kernel_size=2),
         nn.Flatten(),
-        nn.Linear(8 * 8 * 128, 128),
+        nn.Linear(8 * 8 * 64, 64),
         nn.ReLU(True),
-        nn.Linear(128, 64),
+        nn.Linear(64, 64),
         nn.ReLU(True),
         nn.Linear(64, action_size),
         pfrl.policies.GaussianHeadWithStateIndependentCovariance(
@@ -260,18 +264,22 @@ def main():
 
     vf = nn.Sequential(
         nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1),
+        nn.ReLU(True),
         nn.MaxPool2d(kernel_size=2),
         nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
-        nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
-        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.ReLU(True),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.ReLU(True),
         nn.MaxPool2d(kernel_size=2),
-        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-        nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.ReLU(True),
+        nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1),
+        nn.ReLU(True),
         nn.MaxPool2d(kernel_size=2),
         nn.Flatten(),
-        nn.Linear(8 * 8 * 128, 128),
+        nn.Linear(8 * 8 * 64, 64),
         nn.ReLU(True),
-        nn.Linear(128, 64),
+        nn.Linear(64, 64),
         nn.ReLU(True),
         nn.Linear(64, 1),
     )
